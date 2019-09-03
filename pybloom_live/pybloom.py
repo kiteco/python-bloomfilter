@@ -8,13 +8,9 @@ from __future__ import absolute_import
 import math
 import hashlib
 import copy
-from pybloom_live.utils import range_fn, is_string_io, running_python_3
+from pybloom_live.storage import BitArrayStorage
+from pybloom_live.utils import range_fn, running_python_3
 from struct import unpack, pack, calcsize
-
-try:
-    import bitarray
-except ImportError:
-    raise ImportError('pybloom_live requires bitarray >= 0.3.4')
 
 
 def make_hashfuncs(num_slices, num_bits):
@@ -69,7 +65,7 @@ def make_hashfuncs(num_slices, num_bits):
 class BloomFilter(object):
     FILE_FMT = b'<dQQQQ'
 
-    def __init__(self, capacity, error_rate=0.001):
+    def __init__(self, capacity, error_rate=0.001, storage=BitArrayStorage):
         """Implements a space-efficient probabilistic data structure
 
         capacity
@@ -80,6 +76,11 @@ class BloomFilter(object):
             the error_rate of the filter returning false positives. This
             determines the filters capacity. Inserting more than capacity
             elements greatly increases the chance of false positives.
+        storage
+            if provided, must be a callable that accepts a single argument, the
+            number of bits to store, and returns an instance compatible with
+            pybloom_live.storage.Storage. If not provided, a default
+            bitarray-based adapter will be used.
         """
         if not (0 < error_rate < 1):
             raise ValueError("Error_Rate must be between 0 and 1.")
@@ -95,11 +96,9 @@ class BloomFilter(object):
         bits_per_slice = int(math.ceil(
             (capacity * abs(math.log(error_rate))) /
             (num_slices * (math.log(2) ** 2))))
-        self._setup(error_rate, num_slices, bits_per_slice, capacity, 0)
-        self.bitarray = bitarray.bitarray(self.num_bits, endian='little')
-        self.bitarray.setall(False)
+        self._setup(error_rate, num_slices, bits_per_slice, capacity, 0, storage)
 
-    def _setup(self, error_rate, num_slices, bits_per_slice, capacity, count):
+    def _setup(self, error_rate, num_slices, bits_per_slice, capacity, count, storage):
         self.error_rate = error_rate
         self.num_slices = num_slices
         self.bits_per_slice = bits_per_slice
@@ -107,16 +106,17 @@ class BloomFilter(object):
         self.num_bits = num_slices * bits_per_slice
         self.count = count
         self.make_hashes, self.hashfn = make_hashfuncs(self.num_slices, self.bits_per_slice)
+        self.storage = storage(self.num_bits)
+        self._assert_storage_bits()
 
     def __contains__(self, key):
         """Tests a key's membership in this bloom filter.
         """
         bits_per_slice = self.bits_per_slice
-        bitarray = self.bitarray
         hashes = self.make_hashes(key)
         offset = 0
         for k in hashes:
-            if not bitarray[offset + k]:
+            if not self.storage.get(offset + k):
                 return False
             offset += bits_per_slice
         return True
@@ -129,7 +129,6 @@ class BloomFilter(object):
         """ Adds a key to this bloom filter. If the key already exists in this
         filter it will return True. Otherwise False.
         """
-        bitarray = self.bitarray
         bits_per_slice = self.bits_per_slice
         hashes = self.make_hashes(key)
         found_all_bits = True
@@ -137,9 +136,9 @@ class BloomFilter(object):
             raise IndexError("BloomFilter is at capacity")
         offset = 0
         for k in hashes:
-            if not skip_check and found_all_bits and not bitarray[offset + k]:
+            if not skip_check and found_all_bits and not self.storage.get(offset + k):
                 found_all_bits = False
-            self.bitarray[offset + k] = True
+            self.storage.set(offset + k)
             offset += bits_per_slice
 
         if skip_check:
@@ -154,33 +153,33 @@ class BloomFilter(object):
     def copy(self):
         """Return a copy of this bloom filter.
         """
-        new_filter = BloomFilter(self.capacity, self.error_rate)
-        new_filter.bitarray = self.bitarray.copy()
-        return new_filter
+        new_storage = self.storage.copy()
+        new_bloom = BloomFilter(self.capacity, self.error_rate, storage=lambda num_bits: new_storage)
+        return new_bloom
 
     def union(self, other):
-        """ Calculates the union of the two underlying bitarrays and returns
+        """ Calculates the union of the two underlying storages and returns
         a new bloom filter object."""
         if self.capacity != other.capacity or \
                         self.error_rate != other.error_rate:
             raise ValueError(
                 "Unioning filters requires both filters to have both the same capacity and error rate")
-        new_bloom = self.copy()
-        new_bloom.bitarray = new_bloom.bitarray | other.bitarray
+        new_storage = self.storage.union(other.storage)
+        new_bloom = BloomFilter(self.capacity, self.error_rate, storage=lambda num_bits: new_storage)
         return new_bloom
 
     def __or__(self, other):
         return self.union(other)
 
     def intersection(self, other):
-        """ Calculates the intersection of the two underlying bitarrays and returns
+        """ Calculates the intersection of the two underlying storages and returns
         a new bloom filter object."""
         if self.capacity != other.capacity or \
                         self.error_rate != other.error_rate:
             raise ValueError(
                 "Intersecting filters requires both filters to have equal capacity and error rate")
-        new_bloom = self.copy()
-        new_bloom.bitarray = new_bloom.bitarray & other.bitarray
+        new_storage = self.storage.intersection(other.storage)
+        new_bloom = BloomFilter(self.capacity, self.error_rate, storage=lambda num_bits: new_storage)
         return new_bloom
 
     def __and__(self, other):
@@ -192,11 +191,10 @@ class BloomFilter(object):
         efficient than pickling the object."""
         f.write(pack(self.FILE_FMT, self.error_rate, self.num_slices,
                      self.bits_per_slice, self.capacity, self.count))
-        (f.write(self.bitarray.tobytes()) if is_string_io(f)
-         else self.bitarray.tofile(f))
+        f.write(self.storage.tobytes())
 
     @classmethod
-    def fromfile(cls, f, n=-1):
+    def fromfile(cls, f, n=-1, storage=BitArrayStorage):
         """Read a bloom filter from file-object `f' serialized with
         ``BloomFilter.tofile''. If `n' > 0 read only so many bytes."""
         headerlen = calcsize(cls.FILE_FMT)
@@ -204,20 +202,22 @@ class BloomFilter(object):
         if 0 < n < headerlen:
             raise ValueError('n too small!')
 
-        filter = cls(1)  # Bogus instantiation, we will `_setup'.
-        filter._setup(*unpack(cls.FILE_FMT, f.read(headerlen)))
-        filter.bitarray = bitarray.bitarray(endian='little')
+        (error_rate, num_slices, bits_per_slice, capacity, count) = unpack(
+            cls.FILE_FMT, f.read(headerlen))
         if n > 0:
-            (filter.bitarray.frombytes(f.read(n - headerlen)) if is_string_io(f)
-             else filter.bitarray.fromfile(f, n - headerlen))
+            data = f.read(n - headerlen)
         else:
-            (filter.bitarray.frombytes(f.read()) if is_string_io(f)
-             else filter.bitarray.fromfile(f))
-        if filter.num_bits != filter.bitarray.length() and \
-                (filter.num_bits + (8 - filter.num_bits % 8) != filter.bitarray.length()):
-            raise ValueError('Bit length mismatch!')
+            data = f.read()
+        new_storage = storage.frombytes(data)
+        new_filter = cls(1)  # Bogus instantiation, we will `_setup'.
+        new_filter._setup(error_rate, num_slices, bits_per_slice, capacity, count, lambda num_bits: new_storage)
+        new_filter._assert_storage_bits()
+        return new_filter
 
-        return filter
+    def _assert_storage_bits(self):
+        if self.num_bits != self.storage.num_bits and \
+                (self.num_bits + (8 - self.num_bits % 8) != self.storage.num_bits):
+            raise ValueError('Bit length mismatch!')
 
     def __getstate__(self):
         d = self.__dict__.copy()

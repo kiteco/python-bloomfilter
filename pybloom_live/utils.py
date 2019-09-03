@@ -17,13 +17,3 @@ def range_fn(start=0, stop=None):
         return range(start, stop)
     else:
         return iter(itertools.count(start).next, stop)
-
-
-def is_string_io(instance):
-    if isinstance(instance, BytesIO):
-        return True
-    if not running_python_3:
-        return isinstance(instance, (StringIO.StringIO,
-                                     cStringIO.InputType,
-                                     cStringIO.OutputType))
-    return False
