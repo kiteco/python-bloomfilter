@@ -11,7 +11,7 @@ from pybloom_live.utils import range_fn, is_string_io, running_python_3
 from struct import unpack, pack, calcsize
 
 try:
-    from PyQt5.QtCore import QBitArray
+    from PyQt5.QtCore import QBitArray, QFile, QDataStream, QIODevice
 except ImportError:
     raise ImportError('pybloom_live requires QtCore.QBitArray')
 
@@ -184,36 +184,50 @@ class BloomFilter(object):
     def __and__(self, other):
         return self.intersection(other)
 
-    def tofile(self, f):
+    def tofile(self, path):
         """Write the bloom filter to file object `f'. Underlying bits
         are written as machine values. This is much more space
         efficient than pickling the object."""
-        f.write(pack(self.FILE_FMT, self.error_rate, self.num_slices,
-                     self.bits_per_slice, self.capacity, self.count))
-        (f.write(self.bitarray.bits()) if is_string_io(f)
-         else self.bitarray.tofile(f))
+        # f.write(pack(self.FILE_FMT, self.error_rate, self.num_slices,
+        #              self.bits_per_slice, self.capacity, self.count))
+        # f.write(self.bitarray.bits)
+        f = QFile(path)
+        if f.open(QIODevice.WriteOnly):
+            out =  QDataStream(f)
+            out.writeBytes(self.FILE_FMT)
+            out.writeFloat(self.error_rate)
+            out.writeInt(self.num_slices)
+            out.writeInt(self.bits_per_slice)
+            out.writeInt(self.capacity)
+            out.writeInt(self.count)
+            out << self.bitarray
+            f.flush()
+            f.close()
 
     @classmethod
-    def fromfile(cls, f, n=-1):
+    def fromfile(cls, path):
         """Read a bloom filter from file-object `f' serialized with
-        ``BloomFilter.tofile''. If `n' > 0 read only so many bytes."""
-        headerlen = calcsize(cls.FILE_FMT)
+        ``BloomFilter.tofile''. """
+        f = QFile(path)
+        if not f.open(QIODevice.ReadOnly):
+            raise ValueError("unable to open file " + path)
 
-        if 0 < n < headerlen:
-            raise ValueError('n too small!')
+        data = QDataStream(f)
+        file_fmt = data.readBytes()
+        if file_fmt != cls.FILE_FMT:
+            raise ValueError('unexpected file format')
+
+        error_rate = data.readFloat()
+        num_slices = data.readInt()
+        bits_per_slice = data.readInt()
+        capacity = data.readInt()
+        count = data.readInt()
+        bitarray = QBitArray()
 
         filter = cls(1)  # Bogus instantiation, we will `_setup'.
-        filter._setup(*unpack(cls.FILE_FMT, f.read(headerlen)))
+        filter._setup(error_rate, num_slices, bits_per_slice, capacity, count)
         filter.bitarray = QBitArray()
-        if n > 0:
-            (filter.bitarray.fromBits(f.read(n - headerlen)) if is_string_io(f)
-             else filter.bitarray.fromfile(f, n - headerlen))
-        else:
-            (filter.bitarray.fromBits(f.read()) if is_string_io(f)
-             else filter.bitarray.fromfile(f))
-        if filter.num_bits != filter.bitarray.size() and \
-                (filter.num_bits + (8 - filter.num_bits % 8) != filter.bitarray.size()):
-            raise ValueError('Bit length mismatch!')
+        data >> filter.bitarray
 
         return filter
 
