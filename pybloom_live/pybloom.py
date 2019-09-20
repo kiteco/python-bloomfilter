@@ -7,14 +7,13 @@ Requires the bitarray library: http://pypi.python.org/pypi/bitarray/
 from __future__ import absolute_import
 import math
 import hashlib
-import copy
 from pybloom_live.utils import range_fn, is_string_io, running_python_3
 from struct import unpack, pack, calcsize
 
 try:
-    import bitarray
+    from PyQt5.QtCore import QBitArray
 except ImportError:
-    raise ImportError('pybloom_live requires bitarray >= 0.3.4')
+    raise ImportError('pybloom_live requires QtCore.QBitArray')
 
 
 def make_hashfuncs(num_slices, num_bits):
@@ -96,8 +95,7 @@ class BloomFilter(object):
             (capacity * abs(math.log(error_rate))) /
             (num_slices * (math.log(2) ** 2))))
         self._setup(error_rate, num_slices, bits_per_slice, capacity, 0)
-        self.bitarray = bitarray.bitarray(self.num_bits, endian='little')
-        self.bitarray.setall(False)
+        self.bitarray = QBitArray(self.num_bits)
 
     def _setup(self, error_rate, num_slices, bits_per_slice, capacity, count):
         self.error_rate = error_rate
@@ -139,7 +137,7 @@ class BloomFilter(object):
         for k in hashes:
             if not skip_check and found_all_bits and not bitarray[offset + k]:
                 found_all_bits = False
-            self.bitarray[offset + k] = True
+            self.bitarray.setBit(offset + k)
             offset += bits_per_slice
 
         if skip_check:
@@ -155,7 +153,7 @@ class BloomFilter(object):
         """Return a copy of this bloom filter.
         """
         new_filter = BloomFilter(self.capacity, self.error_rate)
-        new_filter.bitarray = self.bitarray.copy()
+        new_filter.bitarray = QBitArray(self.bitarray)
         return new_filter
 
     def union(self, other):
@@ -192,7 +190,7 @@ class BloomFilter(object):
         efficient than pickling the object."""
         f.write(pack(self.FILE_FMT, self.error_rate, self.num_slices,
                      self.bits_per_slice, self.capacity, self.count))
-        (f.write(self.bitarray.tobytes()) if is_string_io(f)
+        (f.write(self.bitarray.bits()) if is_string_io(f)
          else self.bitarray.tofile(f))
 
     @classmethod
@@ -206,15 +204,15 @@ class BloomFilter(object):
 
         filter = cls(1)  # Bogus instantiation, we will `_setup'.
         filter._setup(*unpack(cls.FILE_FMT, f.read(headerlen)))
-        filter.bitarray = bitarray.bitarray(endian='little')
+        filter.bitarray = QBitArray()
         if n > 0:
-            (filter.bitarray.frombytes(f.read(n - headerlen)) if is_string_io(f)
+            (filter.bitarray.fromBits(f.read(n - headerlen)) if is_string_io(f)
              else filter.bitarray.fromfile(f, n - headerlen))
         else:
-            (filter.bitarray.frombytes(f.read()) if is_string_io(f)
+            (filter.bitarray.fromBits(f.read()) if is_string_io(f)
              else filter.bitarray.fromfile(f))
-        if filter.num_bits != filter.bitarray.length() and \
-                (filter.num_bits + (8 - filter.num_bits % 8) != filter.bitarray.length()):
+        if filter.num_bits != filter.bitarray.size() and \
+                (filter.num_bits + (8 - filter.num_bits % 8) != filter.bitarray.size()):
             raise ValueError('Bit length mismatch!')
 
         return filter
@@ -293,6 +291,17 @@ class ScalableBloomFilter(object):
         filter.add(key, skip_check=True)
         return False
 
+    def copy(self):
+        """ Returns a clone of this instance.
+        This is used instead of copy.deepcopy because QBitArray
+        is not pickle-able (error can't pickle QBitArray objects) """
+        cloned = ScalableBloomFilter(self.initial_capacity,
+                                     self.error_rate,
+                                     self.scale)
+        for f in self.filters:
+            cloned.filters.append(f.copy())
+        return cloned
+
     def union(self, other):
         """ Calculates the union of the underlying classic bloom filters and returns
         a new scalable bloom filter object."""
@@ -303,10 +312,10 @@ class ScalableBloomFilter(object):
             raise ValueError("Unioning two scalable bloom filters requires \
             both filters to have both the same mode, initial capacity and error rate")
         if len(self.filters) > len(other.filters):
-            larger_sbf = copy.deepcopy(self)
+            larger_sbf = self.copy()
             smaller_sbf = other
         else:
-            larger_sbf = copy.deepcopy(other)
+            larger_sbf = other.copy()
             smaller_sbf = self
         # Union the underlying classic bloom filters
         new_filters = []
