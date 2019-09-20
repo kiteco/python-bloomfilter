@@ -37,6 +37,6 @@ setup(
     platforms=['any'],
     test_suite="pybloom_live.tests",
     zip_safe=True,
-    install_requires=['PyQt5 =5.9.2'],
+    install_requires=['PyQt5 ==5.9.2'],
     packages=['pybloom_pyqt']
 )
