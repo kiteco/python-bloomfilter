@@ -23,7 +23,7 @@ Topic :: Software Development :: Libraries :: Python Modules
 """.splitlines()))
 
 setup(
-    name="pybloom_live",
+    name="pybloom_pyqt",
     version=VERSION,
     description=DESCRIPTION,
     long_description=LONG_DESCRIPTION,
@@ -37,6 +37,6 @@ setup(
     platforms=['any'],
     test_suite="pybloom_live.tests",
     zip_safe=True,
-    install_requires=['bitarray>=0.3.4'],
-    packages=['pybloom_live']
+    install_requires=['pyqt <5.13', 'qtpy >=1.5.0'],
+    packages=['pybloom_pyqt']
 )

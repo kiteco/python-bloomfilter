@@ -1,1 +1,2 @@
-bitarray>=0.3.4
+pyqt <5.13
+qtpy >=1.5.0
