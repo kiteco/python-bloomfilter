@@ -35,7 +35,7 @@ setup(
     url="https://github.com/joseph-fox/python-bloomfilter",
     license="MIT License",
     platforms=['any'],
-    test_suite="pybloom_live.tests",
+    test_suite="pybloom_pyqt.tests",
     zip_safe=True,
     install_requires=['PyQt5 ==5.9.2'],
     packages=['pybloom_pyqt']

@@ -24,8 +24,8 @@ with a tighter probability of false positives and a larger number of hash
 functions.
 
 ```python
-    >>> import pybloom_live
-    >>> f = pybloom_live.BloomFilter(capacity=1000, error_rate=0.001)
+    >>> import pybloom_pyqt
+    >>> f = pybloom_pyqt.BloomFilter(capacity=1000, error_rate=0.001)
     >>> [f.add(x) for x in range(10)]
     [False, False, False, False, False, False, False, False, False, False]
     >>> all([(x in f) for x in range(10)])
@@ -34,13 +34,13 @@ functions.
     False
     >>> 5 in f
     True
-    >>> f = pybloom_live.BloomFilter(capacity=1000, error_rate=0.001)
+    >>> f = pybloom_pyqt.BloomFilter(capacity=1000, error_rate=0.001)
     >>> for i in xrange(0, f.capacity):
     ...     _ = f.add(i)
     >>> (1.0 - (len(f) / float(f.capacity))) <= f.error_rate + 2e-18
     True
 
-    >>> sbf = pybloom_live.ScalableBloomFilter(mode=pybloom_live.ScalableBloomFilter.SMALL_SET_GROWTH)
+    >>> sbf = pybloom_pyqt.ScalableBloomFilter(mode=pybloom_pyqt.ScalableBloomFilter.SMALL_SET_GROWTH)
     >>> count = 10000
     >>> for i in range(0, count):
             _ = sbf.add(i)

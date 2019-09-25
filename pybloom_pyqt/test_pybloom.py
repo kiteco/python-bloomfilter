@@ -1,7 +1,7 @@
 from __future__ import absolute_import
-from pybloom_live.pybloom import (BloomFilter, ScalableBloomFilter,
+from pybloom_pyqt.pybloom import (BloomFilter, ScalableBloomFilter,
                                   make_hashfuncs)
-from pybloom_live.utils import running_python_3, range_fn
+from pybloom_pyqt.utils import running_python_3, range_fn
 
 try:
     import StringIO
