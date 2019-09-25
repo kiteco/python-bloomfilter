@@ -1,7 +1,7 @@
 [![Build Status](https://travis-ci.org/joseph-fox/python-bloomfilter.svg?branch=master)](https://travis-ci.org/joseph-fox/python-bloomfilter)
 
 # Python Bloom Filter
-
+Note: *This is a fork, which makes use of PyQt's BitArray implementation instead of the originally used pypy bitarray.*
 
 This Bloom Filter has its tightening ratio updated to 0.9, and this ration 
 is consistently used throughout the `pybloom` module.
