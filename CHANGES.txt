@@ -1,3 +1,9 @@
+Changes in kiteco/pyqt-bloomfilter
+================
+This implementation is using PyQt's BitArray implementation instead
+of the pypy bitset implementation. This simplifies use in a PyQt application.
+The binary format is not compatible with the original format used by https://github.com/conversocial/python-bloomfilter.
+
 Changes in 3.0.0
 ================
 Backward incompatible change: dropped the support of Python 2.6.
